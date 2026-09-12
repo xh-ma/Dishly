@@ -16,7 +16,7 @@
 import { NextResponse } from 'next/server';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MenuRequestSchema, type ApiError, type MenuResponse } from '@/lib/types';
+import { MenuRequestSchema, type ApiError, type MenuResponse, type ReviewSignals } from '@/lib/types';
 import { scrapeMenuDetailed } from '@/lib/scrape-menu';
 import { menuLooksReal, parseMenu } from '@/lib/parse-menu';
 import { hashSeed, seededRng, spin } from '@/lib/roulette';
@@ -25,6 +25,9 @@ import { lookupDishes } from '@/lib/dish-lookup';
 import { isMocked } from '@/lib/steel';
 import { SAMPLE_DISHES } from '@/lib/fixtures';
 import { SAMPLE_SIGNALS } from '@/lib/fixtures/sample-signals';
+import { findGoogleMapsUrl, scrapeReviews } from '@/lib/scrape-reviews';
+import { buildDishSignalsWithClaude } from '@/lib/review-signals-llm';
+import { reviewSignalsCacheGet, reviewSignalsCacheSet } from '@/lib/cache';
 
 export const runtime = 'nodejs';
 /** Matches the batch ceiling /api/dish enforces via DishRequestSchema. */
@@ -33,6 +36,43 @@ export const maxDuration = 120;
 
 function fail(message: string, status = 400) {
   return NextResponse.json<ApiError>({ error: true, message }, { status });
+}
+
+/**
+ * A scrapes the real reviews via Steel. B scores each dish from that text
+ * (deterministic lexicon). C's buildDishSignalsWithClaude wraps B's scorer
+ * with a Claude call that sets the final per-dish weight, falling back to
+ * B's plain lexicon score whenever Claude is unavailable or fails.
+ *
+ * Cached per restaurant URL — the scrape and the model call are both too slow
+ * to redo on every spin of the same restaurant.
+ */
+async function getReviewSignals(
+  url: string,
+  restaurantName: string,
+  pageMarkdown: string,
+  dishNames: string[],
+): Promise<ReviewSignals> {
+  const cached = await reviewSignalsCacheGet(url);
+  if (cached) return cached;
+
+  const reviewScrape = await scrapeReviews(restaurantName, {
+    mapsUrl: findGoogleMapsUrl(pageMarkdown),
+    pageMarkdown,
+  }).catch(() => undefined);
+
+  const reviewText = reviewScrape?.markdown.trim() ?? '';
+  const hasReviews = reviewText.length > 0 && !reviewText.startsWith('Could not load reviews for');
+
+  const { signals: dishSignals } = hasReviews
+    ? await buildDishSignalsWithClaude([reviewText], dishNames)
+    : { signals: [] };
+
+  const signals: ReviewSignals = Object.fromEntries(
+    dishSignals.map((s) => [s.dishName, { mentions: s.mentionCount, score: s.score }]),
+  );
+  await reviewSignalsCacheSet(url, signals);
+  return signals;
 }
 
 export async function POST(req: Request) {
@@ -98,9 +138,15 @@ export async function POST(req: Request) {
     const seed = pinnedSeed ?? hashSeed(`${url}|${partySize}|${Date.now()}`);
     const rng = seededRng(seed);
 
-    // TODO(C): swap for workstream B's real scoring once the review scrape lands.
     // An empty map is a valid input — a restaurant with no reviews spins uniformly.
-    const signals = isMocked() ? SAMPLE_SIGNALS : {};
+    const signals = isMocked()
+      ? SAMPLE_SIGNALS
+      : await getReviewSignals(
+          url,
+          scraped.restaurantName ?? url,
+          trace.generalMarkdown ?? scraped.markdown,
+          dishes.map((d) => d.name),
+        );
     const picks = spin(dishes, partySize, rng, signals).map((p) => ({
       ...p,
       justification: justify(p.dish, p.course, partySize, signals[p.dish.name]),

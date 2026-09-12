@@ -8,7 +8,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import type { DishFacts } from '@/lib/types';
+import type { DishFacts, ReviewSignals } from '@/lib/types';
 
 const CACHE_FILE = '.cache/dishes.json';
 
@@ -85,4 +85,44 @@ export async function cacheSet(name: string, facts: DishFacts): Promise<void> {
 export async function cacheStats(): Promise<{ memory: number; disk: number; file: string }> {
   const onDisk = loadDisk();
   return { memory: memory.size, disk: Object.keys(onDisk).length, file: CACHE_FILE };
+}
+
+const REVIEW_CACHE_FILE = '.cache/review-signals.json';
+let reviewDisk: Record<string, ReviewSignals> | null = null;
+let reviewWriteTimer: ReturnType<typeof setTimeout> | null = null;
+
+function loadReviewDisk(): Record<string, ReviewSignals> {
+  if (reviewDisk) return reviewDisk;
+  try {
+    const raw = fs.readFileSync(REVIEW_CACHE_FILE, 'utf-8');
+    reviewDisk = JSON.parse(raw);
+  } catch {
+    reviewDisk = {};
+  }
+  return reviewDisk!;
+}
+
+function scheduleReviewWrite(): void {
+  if (reviewWriteTimer) clearTimeout(reviewWriteTimer);
+  reviewWriteTimer = setTimeout(() => {
+    const dir = path.dirname(REVIEW_CACHE_FILE);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(REVIEW_CACHE_FILE, JSON.stringify(reviewDisk ?? {}, null, 2));
+    reviewWriteTimer = null;
+  }, 500);
+}
+
+/**
+ * One review scrape + score per restaurant, not per spin — keyed on the menu
+ * URL the diner gave us. Review scraping and the Claude scoring call are both
+ * too slow to repeat on every spin of the same restaurant.
+ */
+export async function reviewSignalsCacheGet(url: string): Promise<ReviewSignals | undefined> {
+  return loadReviewDisk()[url];
+}
+
+export async function reviewSignalsCacheSet(url: string, signals: ReviewSignals): Promise<void> {
+  const onDisk = loadReviewDisk();
+  onDisk[url] = signals;
+  scheduleReviewWrite();
 }
