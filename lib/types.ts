@@ -54,7 +54,7 @@ export interface Pick {
   /** 1-based diner this main belongs to. Undefined for shared courses. */
   seat?: number;
   shared: boolean;
-  /** Deadpan paragraph from lib/justify. Always present, never empty. */
+  /** Short reason this dish was recommended. Always present, never empty. */
   justification: string;
 }
 

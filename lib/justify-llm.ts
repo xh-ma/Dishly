@@ -3,66 +3,45 @@
  *
  * OPTIONAL upgrade to lib/justify.ts. Nothing depends on it.
  *
- * `justify()` remains the default and always renders. This module tries to
- * replace that text with something better written, and every failure path
- * returns {} so the caller silently keeps the template:
- *
- *   - no ANTHROPIC_API_KEY set          -> {} without a network call
- *   - credits exhausted / rate limited  -> {}
- *   - API down, slow, or malformed      -> {}
- *   - timeout (hard-capped below)       -> {}
- *
- * This is why the clause banks in lib/justify.ts are not throwaway: they are
- * both the fallback AND the few-shot examples that hold the register here.
- * A model asked for "deadpan" without examples drifts into jokes within two
- * sentences, and the joke in this project is that it never winks.
- *
- * The call is made AFTER the spin has already rendered — see app/api/justify.
- * It is never in the path of a spin.
+ * Prompted with the dish name and the review score we actually have.
+ * Explains why this FOOD is worth ordering — not the table arithmetic.
+ * Every failure path returns {} so the caller keeps the template.
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type { Pick, ReviewSignals } from '@/lib/types';
-import { CLOSERS, OPENERS } from '@/lib/justify';
 
-/**
- * Hard ceiling on this call, and it really is hard: the SDK retries twice by
- * default, so a naive `timeout` is silently tripled. maxRetries is pinned to 0
- * below so the wall-clock worst case equals this number, and it sits under the
- * route's maxDuration of 30s.
- *
- * 8s was too short and failed every call: Opus 5 runs adaptive thinking by
- * default, and six justifications take longer than that to think and write.
- */
 const TIMEOUT_MS = 25_000;
 
-/** Keyed on dish + course + party size, matching justify()'s own seed. */
 const cache = new Map<string, string>();
-const keyFor = (p: Pick, partySize: number) => `${p.dish.name}|${p.course}|${partySize}`;
+const keyFor = (p: Pick, partySize: number, score: number | undefined) =>
+  `${p.dish.name}|${p.course}|${partySize}|${score ?? 'none'}`;
 
-const SYSTEM = `You write the justification a restaurant serves with a dish that was, in fact, chosen at random. You write in the register of an institutional finding: absolute bureaucratic certainty about a coin flip.
+const SYSTEM = `You explain why a specific food is a good recommendation from a restaurant menu.
 
-Rules:
-- Never acknowledge randomness, chance, or that this is a game. Never wink at the reader.
-- No jokes, no exclamation marks, no emoji, no second person plural enthusiasm.
-- Past tense and passive constructions are your friends. "The matter has been settled."
-- 4 to 6 sentences. Reference the dish's own menu description and price where given.
-- Cite review data ONLY when it is supplied for that dish. A dish given no review
-  data has none: say nothing about prior diners, remarks, or precedent for it.
-  Never invent a review, a complaint, or a count. Fabricated evidence is the one
-  thing that breaks this voice, because the voice claims to be citing a record.
-- Where mentions and score ARE given: a positive score is corroboration, a negative
-  score is objection that has been considered and overruled, and zero is a divided
-  record that has nonetheless been resolved.
-- Every dish at the table must read differently from the others.
+You are always given:
+- dishName: the food's name — use it
+- reviewScore: a number from our review scoring, or null if we have no reviews for this dish
+- reviewMentions: how many review clauses named this dish, or null
 
-The correct voice, for calibration:
-${OPENERS.slice(0, 5).map((s) => `  ${s}`).join('\n')}
-${CLOSERS.slice(0, 5).map((s) => `  ${s}`).join('\n')}`;
+Write 1 or 2 short sentences about the FOOD: what it is and why someone would want it.
+Everyday English. No jokes, no sarcasm, no bureaucratic voice.
 
-/**
- * Returns a map of dish name -> upgraded justification. An empty map means
- * "keep what you have" and is a completely normal result, not an error.
- */
+How to use the review score:
+- A number is supplied only when we scored real reviews. Never invent reviews.
+- reviewScore > 0: people who ate here liked this food — say that in plain words.
+- reviewScore is 0: reviews are mixed.
+- reviewScore < 0: some reviews were negative; still say why the food itself is interesting.
+- reviewScore is null: do not mention reviews at all. Recommend from the dish name and menu notes only.
+
+Do not talk about party size, "filling a slot", or that it was picked at random.
+Each dish must read differently from the others.
+
+Example when reviewScore is 2.1:
+Harbord Room Burger is a proper steakhouse burger — dry-aged chuck and brisket with cheddar and Guinness onions. People who ate here mention it often, and they like it.
+
+Example when reviewScore is null:
+Sticky Toffee Pudding is a warm date pudding with brown-butter ice cream and toffee sauce — a straightforward way to finish.`;
+
 export async function upgradeJustifications(
   picks: Pick[],
   partySize: number,
@@ -72,13 +51,12 @@ export async function upgradeJustifications(
 
   const out: Record<string, string> = {};
   const cold = picks.filter((p) => {
-    const hit = cache.get(keyFor(p, partySize));
+    const score = signals[p.dish.name]?.score;
+    const hit = cache.get(keyFor(p, partySize, score));
     if (hit) out[p.dish.name] = hit;
     return !hit;
   });
   if (!cold.length) return out;
-
-  // No key is the expected state for anyone who has not set one up. Not an error.
   if (!process.env.ANTHROPIC_API_KEY) return out;
 
   try {
@@ -86,8 +64,7 @@ export async function upgradeJustifications(
     const response = await client.messages.create(
       {
         model: 'claude-opus-5',
-        max_tokens: 2000,
-        // Short prose, not a reasoning problem. Low effort keeps it quick and cheap.
+        max_tokens: 1200,
         output_config: {
           effort: 'low',
           format: {
@@ -114,20 +91,17 @@ export async function upgradeJustifications(
         messages: [
           {
             role: 'user',
-            content: `Party of ${partySize}. Write one justification per dish.\n\n${JSON.stringify(
-              cold.map((p) => ({
-                dish: p.dish.name,
-                course: p.course,
-                price: p.dish.price,
-                menuDescription: p.dish.description,
-                shared: p.shared,
-                seat: p.seat,
-                // Omitted entirely when absent, so the model cannot mistake a
-                // zero for "nobody liked it" or invent a record that is not there.
-                reviews: signals[p.dish.name]
-                  ? { mentions: signals[p.dish.name].mentions, score: Number(signals[p.dish.name].score.toFixed(1)) }
-                  : undefined,
-              })),
+            content: `Explain why each of these foods is a good recommendation.\n\n${JSON.stringify(
+              cold.map((p) => {
+                const signal = signals[p.dish.name];
+                return {
+                  dishName: p.dish.name,
+                  reviewScore: signal ? Number(signal.score.toFixed(1)) : null,
+                  reviewMentions: signal ? signal.mentions : null,
+                  menuNotes: p.dish.description || null,
+                  course: p.course,
+                };
+              }),
               null,
               2,
             )}`,
@@ -147,14 +121,13 @@ export async function upgradeJustifications(
     for (const item of list) {
       if (!item?.dish || !item?.text) continue;
       const pick = cold.find((p) => p.dish.name === item.dish);
-      if (!pick) continue; // model invented a dish; drop it rather than render it
-      out[item.dish] = item.text;
-      cache.set(keyFor(pick, partySize), item.text);
+      if (!pick) continue;
+      const trimmed = item.text.trim();
+      out[item.dish] = trimmed;
+      cache.set(keyFor(pick, partySize, signals[pick.dish.name]?.score), trimmed);
     }
     return out;
   } catch {
-    // Rate limit, exhausted credits, bad key, network, timeout, unparseable JSON.
-    // Every one of them means the same thing to the caller: keep the template.
     return out;
   }
 }

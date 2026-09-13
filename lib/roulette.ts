@@ -124,8 +124,7 @@ function poolFor(pool: ClassifiedDish[], course: Course): ClassifiedDish[] {
  * would make it ~41x and the roulette would stop being a roulette.
  *
  * A panned dish keeps a small but real chance of coming up. That is deliberate —
- * the justification has a bank for exactly that case, and "the record contains
- * objections, they have been overruled" is funnier than never seeing it.
+ * the justification notes that reviews are mixed, rather than hiding the dish.
  */
 export function weightFor(signal?: ReviewSignal): number {
   if (!signal || signal.score === 0) return 1;
