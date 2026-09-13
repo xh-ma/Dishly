@@ -30,11 +30,14 @@ export function DishGrid({
   facts,
   view,
   onOpen,
+  reasons,
 }: {
   dishes: Dish[];
   facts: Record<string, DishFacts>;
   view: MenuView;
   onOpen: (dish: Dish) => void;
+  /** Shown under recommended dishes in the full view. */
+  reasons?: Record<string, string>;
 }) {
   if (view === 'compact') {
     return (
@@ -54,7 +57,7 @@ export function DishGrid({
         // repeated across categories, or a market item), and a bare name key
         // makes React reuse the wrong row.
         <li key={`${i}-${dish.name}`}>
-          <DishCard dish={dish} facts={facts[dish.name]} />
+          <DishCard dish={dish} facts={facts[dish.name]} verdict={reasons?.[dish.name]} />
         </li>
       ))}
     </ul>

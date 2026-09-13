@@ -96,10 +96,8 @@ export function MenuView() {
     }
 
     /**
-     * Optional: ask Claude for better-written verdicts. The templated text is
-     * already on screen, so this only ever replaces it with something better —
-     * an empty response means Claude was unreachable or unconfigured, and the
-     * template stays with no user-visible difference.
+     * Optional: ask Claude why this food is a good pick, given the dish name
+     * and review score. The short template is already on screen.
      */
     async function upgradeVerdicts(menu: MenuResponse) {
       if (!menu.picks.length) return;
@@ -238,6 +236,7 @@ export function MenuView() {
                       facts={facts}
                       view={view}
                       onOpen={setOpenDish}
+                      reasons={Object.fromEntries(result.picks.map((p) => [p.dish.name, p.justification]))}
                     />
                   </div>
                 </Card>

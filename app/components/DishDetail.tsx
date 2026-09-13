@@ -15,6 +15,7 @@
 import { memo } from 'react';
 import type { Dish, DishFacts } from '@/lib/types';
 import { copy } from '../copy';
+import { simpleDishDescription } from '@/lib/describe-dish';
 import { Skeleton } from './Skeleton';
 
 /**
@@ -55,7 +56,12 @@ export function DishDetail({
   /** Present only when this dish was one of the roulette's picks. */
   verdict?: string;
 }) {
-  const lookedUp = facts?.description && facts.description !== dish.description;
+  const blurb = facts?.description?.trim() || simpleDishDescription(dish);
+  const notes = dish.description?.trim() ?? '';
+  const showNotes =
+    notes.length > 0 &&
+    blurb !== notes &&
+    !blurb.toLowerCase().includes(notes.slice(0, Math.min(24, notes.length)).toLowerCase());
 
   return (
     <div className={layout === 'row' ? 'grid gap-4 sm:grid-cols-[9rem_1fr]' : 'grid gap-4'}>
@@ -78,11 +84,11 @@ export function DishDetail({
           )}
         </div>
 
-        {dish.description && (
-          <p className="text-base italic leading-snug text-ink-soft">{dish.description}</p>
-        )}
+        {blurb && <p className="mt-1 leading-relaxed">{blurb}</p>}
 
-        {lookedUp && <p className="mt-2 leading-relaxed">{facts.description}</p>}
+        {showNotes && (
+          <p className="mt-1 text-base italic leading-snug text-ink-soft">{dish.description}</p>
+        )}
 
         {verdict && (
           <div className="mt-3 border-t border-gold-soft pt-3">
@@ -95,10 +101,18 @@ export function DishDetail({
   );
 }
 
-export const DishCard = memo(function DishCard({ dish, facts }: { dish: Dish; facts?: DishFacts }) {
+export const DishCard = memo(function DishCard({
+  dish,
+  facts,
+  verdict,
+}: {
+  dish: Dish;
+  facts?: DishFacts;
+  verdict?: string;
+}) {
   return (
     <article className="border border-gold-soft bg-paper-white/50 p-4">
-      <DishDetail dish={dish} facts={facts} layout="row" />
+      <DishDetail dish={dish} facts={facts} layout="row" verdict={verdict} />
     </article>
   );
 });
@@ -122,6 +136,11 @@ export const DishTile = memo(function DishTile({
       <Photo facts={facts} className="aspect-square w-full" />
       <span className="mt-1.5 block leading-tight font-medium group-hover:text-tomato">{dish.name}</span>
       {dish.price && <span className="block text-base text-ink-soft tabular-nums">{dish.price}</span>}
+      {(facts?.description || dish.description) && (
+        <span className="mt-1 line-clamp-2 block text-sm leading-snug text-ink-soft">
+          {facts?.description || simpleDishDescription(dish)}
+        </span>
+      )}
     </button>
   );
 });

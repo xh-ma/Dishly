@@ -17,7 +17,7 @@ export const copy = {
   back: 'Back',
   readingMenu: 'Reading the menu',
   suggestionsTitle: 'Recommended dishes',
-  verdict: 'The verdict',
+  verdict: 'Why this dish',
   forTable: (partySize: number) =>
     partySize === 1 ? 'for a table of one' : `for a table of ${partySize}`,
   menuTitle: 'The menu',
