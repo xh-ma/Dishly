@@ -25,6 +25,29 @@ export interface LookupOpts {
   googleFallback?: boolean;
 }
 
+/**
+ * Restaurants do not name dishes the way reference sources do. A Paris brasserie
+ * writes "Confit de canard maison & pommes grenailles"; Wikipedia, TheMealDB and
+ * every image search know it as "Confit de canard".
+ *
+ * This reduces a menu line to the head dish so the SAME key works for all three
+ * sources. It is used only to BUILD QUERIES — the dish keeps its menu name for
+ * display and for the cache.
+ */
+const MENU_FLOURISH =
+  /\b(maison|fait maison|brasserie|traditionnelles?|traditionnels?|iconique|signature|speciale?|du chef|de la maison|de ma mamie|selon arrivage|extra|served with|topped with)\b/gi;
+
+export function coreDishName(name: string): string {
+  let n = name.split(/[,&]|\.\.\.|…|\swith\s|\savec\s/i)[0];
+  n = n.replace(/["“”]/g, ' ').replace(MENU_FLOURISH, ' ');
+  // A price the parser left attached: "... aigrelette 24" or "24 EUR".
+  n = n.replace(/\s+[€$£]?\s*\d{1,3}(?:[.,]\d{1,2})?\s*(?:[€$£]|eur|usd|gbp)?\s*$/i, '');
+  // Leading articles, French and English.
+  n = n.replace(/^\s*(le|la|les|l[’']|un|une|des|du|de la|the|our)\s+/i, '');
+  n = n.replace(/\s+/g, ' ').trim();
+  return n.length >= 3 ? n : name.trim();
+}
+
 /** Cache-first single lookup. */
 export async function lookupDish(dish: Dish, opts: LookupOpts = {}): Promise<DishFacts> {
   const stored = await cacheGet(dish.name);
@@ -34,13 +57,16 @@ export async function lookupDish(dish: Dish, opts: LookupOpts = {}): Promise<Dis
       : stored;
   if (hit && isUsablePhotoUrl(hit.photoUrl)) return withoutIngredients(hit);
 
+  // Query with the reduced name; everything user-facing keeps the menu name.
+  const probe: Dish = { ...dish, name: coreDishName(dish.name) };
+
   const [base, meal] = await Promise.all([
     hit
       ? Promise.resolve(withoutIngredients(hit))
       : isMocked()
         ? Promise.resolve(SAMPLE_FACTS[dish.name] ?? fallbackFacts(dish))
-        : fetchFromWikipedia(dish),
-    fetchFromMealDb(dish),
+        : fetchFromWikipedia(probe),
+    fetchFromMealDb(probe),
   ]);
 
   let facts: DishFacts = meal
@@ -52,14 +78,22 @@ export async function lookupDish(dish: Dish, opts: LookupOpts = {}): Promise<Dis
     : base;
 
   if (!isUsablePhotoUrl(facts.photoUrl) && opts.googleFallback && !isMocked()) {
-    const photoUrl = await fetchPhotoFromGoogle(dish);
+    const photoUrl = await fetchPhotoFromGoogle(probe);
     if (isUsablePhotoUrl(photoUrl)) {
       facts = { ...facts, photoUrl, source: 'google' };
     }
   }
 
+  facts = { ...facts, name: dish.name, searchUrl: googleSearchUrl(dish.name) };
   facts = withGeneratedPhoto(withoutIngredients(facts), dish);
-  await cacheSet(dish.name, facts);
+
+  // Only remember real answers. Caching a miss makes a one-off failure — a
+  // timeout, a rate limit, a key that was not set yet — permanent: lookupDish
+  // returns the cached hit and never tries again. That is why photos were
+  // missing "sometimes" rather than consistently.
+  if (facts.source !== 'generated' && facts.source !== 'none') {
+    await cacheSet(dish.name, facts);
+  }
   return facts;
 }
 
