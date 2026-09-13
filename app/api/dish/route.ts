@@ -27,6 +27,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const facts = await lookupDishes(body.data.dishes);
+  // Same image chain the picked dishes get. Without this a dish the user clicks
+  // never reaches the Google/Bing/DuckDuckGo fallback and falls straight through
+  // to the generated placeholder.
+  const facts = await lookupDishes(body.data.dishes, { googleFallback: true });
   return NextResponse.json<DishResponse>({ facts });
 }
