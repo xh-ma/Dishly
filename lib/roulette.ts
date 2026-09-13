@@ -40,10 +40,10 @@ export function hashSeed(s: string): number {
  * `tea` files S-tea-k Frites as a beverage; an unanchored `fri` makes it vanish
  * entirely. (Design doc §8.)
  */
-const DRINK = /\b(drinks?|beverages?|wines?|beers?|cocktails?|coffee|espresso|latte|cappuccino|tea|juice|soda|lemonade|cider|spirits?|aperitifs?|digestifs?)\b/;
+const DRINK = /\b(drinks?|beverages?|wines?|beers?|cocktails?|coffee|espresso|latte|cappuccino|tea|juice|soda|lemonade|cider|spirits?|aperitifs?|digestifs?|boissons?|vins?|bieres?|cocktails?)\b/;
 const DESSERT = /\b(desserts?|sweets?|puddings?|ice cream|sorbets?|gelato|tarts?|cakes?|br[ûu]l[ée]e|tiramisu|profiteroles?|affogato)\b/;
 const STARTER = /\b(starters?|appetizers?|apps|small plates?|antipasti|entradas|hors d'oeuvres?|salads?|soups?|oysters?|bruschetta|charcuterie|bread|sides?|shareables?)\b/;
-const MAIN = /\b(mains?|entr[ée]es?|plates?|grill|grilled|pastas?|risotto|pizza|from the sea|steaks?|ribs?|ribeye|sirloin|brisket|tenderloin|schnitzel|burgers?|cheeseburgers?|hamburgers?|chicken|salmon|cod|bass|octopus|duck|duckling|pork|lamb|beef|curry|confit|cassoulet)\b/;
+const MAIN = /\b(mains?|entr[ée]es?|plates?|plats?|grill|grilled|pastas?|risotto|pizza|from the sea|steaks?|ribs?|ribeye|sirloin|brisket|tenderloin|schnitzel|burgers?|cheeseburgers?|hamburgers?|chicken|salmon|cod|bass|octopus|duck|duckling|pork|lamb|beef|curry|confit|cassoulet)\b/;
 
 /**
  * Cooking methods. A drink word inside a preparation is FOOD, not a beverage:
