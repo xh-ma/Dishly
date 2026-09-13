@@ -203,7 +203,7 @@ export async function POST(req: Request) {
       0,
       MAX_PICK_LOOKUPS,
     );
-    const facts = await lookupDishes(toEnrich);
+    const facts = await lookupDishes(toEnrich, { googleFallback: true });
 
     return NextResponse.json<MenuResponse>({
       url,

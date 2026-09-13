@@ -4,10 +4,9 @@
  *
  * The result page. Reads the restaurant URL and party size from the query
  * string, asks /api/menu, then looks every dish up in the background in
- * batches of 12 (the /api/dish ceiling) so photos and tags fill in while
- * the user reads. Search is a client-side filter over what is already
- * loaded — name, the menu's line, course, ingredients, description — with
- * accents ignored. The view choice is remembered in the browser.
+ * batches of 12 (the /api/dish ceiling) so photos fill in while the user
+ * reads. Search is a client-side filter over what is already loaded —
+ * name, the menu's line, course, description — with accents ignored.
  */
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -16,7 +15,6 @@ import { copy } from '../copy';
 import { Card, SectionTitle } from './Card';
 import { ButtonLink, SearchField, ToggleGroup } from './controls';
 import { DishDetail } from './DishDetail';
-import { IngredientFilter, type IngredientMode } from './IngredientFilter';
 import { Header } from './Header';
 import { DishGrid, MenuList, type MenuView as View } from './MenuList';
 import { Modal } from './Modal';
@@ -71,8 +69,6 @@ export function MenuView() {
   const [facts, setFacts] = useState<Record<string, DishFacts>>({});
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [ingredientMode, setIngredientMode] = useState<IngredientMode>('include');
-  const [ingredients, setIngredients] = useState<string[]>([]);
   const view = useSyncExternalStore(subscribeView, readView, () => 'full' as View);
   const [openDish, setOpenDish] = useState<Dish | null>(null);
 
@@ -151,44 +147,23 @@ export function MenuView() {
     };
   }, [url, partySize]);
 
-  /** Every ingredient any looked-up dish has, once (case-insensitive), alphabetical. */
-  const ingredientOptions = useMemo(() => {
-    const all = new Map<string, string>();
-    for (const f of Object.values(facts)) {
-      for (const i of f.ingredients ?? []) {
-        if (!all.has(plain(i))) all.set(plain(i), i.charAt(0).toUpperCase() + i.slice(1));
-      }
-    }
-    return Array.from(all.values()).sort((a, b) => a.localeCompare(b));
-  }, [facts]);
-
   /**
-   * Text query over everything known about a dish, then the ingredient
-   * filter: Include keeps dishes that have every chosen ingredient, Exclude
-   * drops dishes that have any of them (a dish with no ingredient data
-   * cannot match an Include and is kept by an Exclude).
+   * Text query over everything known about a dish: name, the menu's line,
+   * course, looked-up description.
    */
   const matches = useMemo(() => {
     if (!result) return [];
     const q = plain(query.trim());
+    if (!q) return result.dishes;
     return result.dishes.filter((dish) => {
       const f = facts[dish.name];
-      if (q) {
-        const hay = [dish.name, dish.description, dish.category, f?.description, ...(f?.ingredients ?? [])]
-          .filter(Boolean)
-          .map((s) => plain(s as string))
-          .join(' ');
-        if (!hay.includes(q)) return false;
-      }
-      if (ingredients.length) {
-        const has = new Set((f?.ingredients ?? []).map(plain));
-        return ingredientMode === 'include'
-          ? ingredients.every((i) => has.has(plain(i)))
-          : !ingredients.some((i) => has.has(plain(i)));
-      }
-      return true;
+      const hay = [dish.name, dish.description, dish.category, f?.description]
+        .filter(Boolean)
+        .map((s) => plain(s as string))
+        .join(' ');
+      return hay.includes(q);
     });
-  }, [result, facts, query, ingredients, ingredientMode]);
+  }, [result, facts, query]);
 
   /** The verdict for a dish, if it was one of the roulette's picks. */
   const verdictFor = useCallback(
@@ -197,7 +172,7 @@ export function MenuView() {
   );
 
   const close = useCallback(() => setOpenDish(null), []);
-  const filtering = query.trim().length > 0 || ingredients.length > 0;
+  const filtering = query.trim().length > 0;
 
   return (
     <>
@@ -225,17 +200,6 @@ export function MenuView() {
               </div>
             </div>
             {result && <p className="mt-3 italic text-ink-soft">{hostOf(result.url)}</p>}
-            {result && (
-              <div className="mt-3">
-                <IngredientFilter
-                  options={ingredientOptions}
-                  selected={ingredients}
-                  mode={ingredientMode}
-                  onSelectedChange={setIngredients}
-                  onModeChange={setIngredientMode}
-                />
-              </div>
-            )}
           </Card>
 
           {error && <p className="text-center text-tomato">{error}</p>}
