@@ -14,6 +14,7 @@
 import type { Dish, DishFacts } from '@/lib/types';
 import { isMocked, steel } from '@/lib/steel';
 import { cacheGet, cacheSet, normalizeDishName } from '@/lib/cache';
+import { classify } from '@/lib/roulette';
 import { SAMPLE_FACTS } from '@/lib/fixtures';
 
 export function googleSearchUrl(name: string): string {
@@ -46,6 +47,24 @@ export function coreDishName(name: string): string {
   n = n.replace(/^\s*(le|la|les|l[’']|un|une|des|du|de la|the|our)\s+/i, '');
   n = n.replace(/\s+/g, ' ').trim();
   return n.length >= 3 ? n : name.trim();
+}
+
+/**
+ * A course word to disambiguate the query. "Mont Blanc" is a mountain, a pen and
+ * a chestnut dessert; "Mont Blanc dessert" is only the dessert. The course comes
+ * from the menu heading the dish sat under, so it costs nothing to know.
+ */
+export function courseQualifier(dish: Dish): string {
+  switch (classify(dish)) {
+    case 'dessert':
+      return 'dessert';
+    case 'drink':
+      return 'drink';
+    case 'starter':
+      return 'appetizer';
+    default:
+      return 'food';
+  }
 }
 
 /** Cache-first single lookup. */
@@ -280,8 +299,20 @@ async function wikiSearchTitle(query: string): Promise<string | undefined> {
 }
 
 async function fetchWikiRest(dish: Dish): Promise<DishFacts | undefined> {
-  const titles = [wikiTitle(dish.name), dish.name.trim()].filter(Boolean);
   const seen = new Set<string>();
+
+  // When the menu told us the course, SEARCH with it before trying the exact
+  // title. Otherwise "Mont Blanc" resolves to the mountain on the first attempt
+  // and returns it happily — the qualified search never runs. Dishes whose
+  // course we do not know ('food') skip this and go straight to the title.
+  const qualifier = courseQualifier(dish);
+  const titles: string[] = [];
+  if (qualifier !== 'food') {
+    const q = await wikiSearchTitle(`${dish.name} ${qualifier}`);
+    if (q) titles.push(q);
+  }
+  titles.push(...[wikiTitle(dish.name), dish.name.trim()].filter(Boolean));
+
   for (const title of titles) {
     const key = title.toLowerCase();
     if (seen.has(key)) continue;
@@ -297,16 +328,27 @@ async function fetchWikiRest(dish: Dish): Promise<DishFacts | undefined> {
     if (found) return found;
   }
 
-  const searched = await wikiSearchTitle(dish.name);
-  if (!searched || seen.has(searched.toLowerCase())) return undefined;
-  const json = await wikiSummary(searched);
-  if (!json || json.type === 'disambiguation') return undefined;
-  if (!titleFitsDish(json.title ?? searched, dish.name)) return undefined;
-  return factsFromExtract(
-    dish,
-    json.extract ?? '',
-    json.originalimage?.source ?? json.thumbnail?.source,
-  );
+  // Qualified first, then bare. The course word rescues "Mont Blanc" (a mountain
+  // and a pen before it is a dessert) but SINKS "Paris-Brest", where the pastry
+  // is the primary article and "Paris-Brest dessert" matches nothing at all.
+  // Trying both, in that order, is what handles the two cases together.
+  for (const query of [`${dish.name} ${courseQualifier(dish)}`, dish.name]) {
+    const searched = await wikiSearchTitle(query);
+    if (!searched) continue;
+    const key = searched.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const json = await wikiSummary(searched);
+    if (!json || json.type === 'disambiguation') continue;
+    if (!titleFitsDish(json.title ?? searched, dish.name)) continue;
+    const found = factsFromExtract(
+      dish,
+      json.extract ?? '',
+      json.originalimage?.source ?? json.thumbnail?.source,
+    );
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /** Steel /scrape of the article — the path the workplan names. Used when REST misses. */
@@ -562,7 +604,7 @@ async function scrapePhotoPage(url: string, delay = GOOGLE_SCRAPE_DELAY_MS): Pro
  * returns dish thumbnails we can put on the card.
  */
 async function fetchPhotoFromGoogle(dish: Dish): Promise<string | undefined> {
-  const query = encodeURIComponent(`${dish.name} food`);
+  const query = encodeURIComponent(`${dish.name} ${courseQualifier(dish)}`);
   try {
     const fromGoogle = await scrapePhotoPage(
       `https://www.google.com/search?q=${query}&udm=2&tbm=isch&safe=active&hl=en&tbs=itp:photo`,
