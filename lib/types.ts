@@ -64,10 +64,8 @@ export interface DishFacts {
   name: string;
   description?: string;
   photoUrl?: string;
-  /** Ingredient list when a recipe source (TheMealDB) knew the dish. */
-  ingredients?: string[];
   searchUrl: string;
-  source: 'wikipedia' | 'mealdb' | 'menu' | 'none';
+  source: 'wikipedia' | 'mealdb' | 'google' | 'generated' | 'menu' | 'none';
 }
 
 /**

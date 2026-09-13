@@ -3,14 +3,14 @@
  * OWNER: Workstream D (UI)
  *
  * One dish, three presentations of the same content:
- *   DishDetail — photo, name and price, ingredient tags, description.
+ *   DishDetail — photo, name and price, description.
  *                `layout="row"` puts the photo beside the text (full view),
  *                `layout="stack"` puts it on top (the dialog).
  *   DishCard   — DishDetail in a bordered card, for the full view.
  *   DishTile   — photo and name only, a button that opens the dialog.
  *
- * Everything the menu already told us renders at once; the photo and tags
- * shimmer until the lookup lands.
+ * Everything the menu already told us renders at once; the photo
+ * shimmers until the lookup lands.
  */
 import { memo } from 'react';
 import type { Dish, DishFacts } from '@/lib/types';
@@ -33,7 +33,14 @@ function Photo({
   if (!facts) return <Skeleton className={className} />;
   if (!facts.photoUrl) return placeholder ? <div aria-hidden className={`${className} bg-cream-deep`} /> : null;
   /* eslint-disable-next-line @next/next/no-img-element */
-  return <img src={facts.photoUrl} alt="" className={`${className} border border-gold-soft object-cover`} />;
+  return (
+    <img
+      src={facts.photoUrl}
+      alt=""
+      referrerPolicy="no-referrer"
+      className={`${className} border border-gold-soft object-cover`}
+    />
+  );
 }
 
 export function DishDetail({
@@ -73,20 +80,6 @@ export function DishDetail({
 
         {dish.description && (
           <p className="text-base italic leading-snug text-ink-soft">{dish.description}</p>
-        )}
-
-        {facts ? (
-          facts.ingredients?.length ? (
-            <ul className="mt-2 flex flex-wrap gap-1.5">
-              {Array.from(new Set(facts.ingredients)).map((ingredient) => (
-                <li key={ingredient} className="tag">
-                  {ingredient}
-                </li>
-              ))}
-            </ul>
-          ) : null
-        ) : (
-          <Skeleton className="mt-2 h-7 w-3/4" />
         )}
 
         {lookedUp && <p className="mt-2 leading-relaxed">{facts.description}</p>}
