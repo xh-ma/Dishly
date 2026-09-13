@@ -14,6 +14,7 @@
 import { NextResponse } from 'next/server';
 import { DishRequestSchema, type ApiError, type DishResponse } from '@/lib/types';
 import { lookupDishes } from '@/lib/dish-lookup';
+import { withSimpleDescriptions } from '@/lib/describe-llm';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -30,6 +31,9 @@ export async function POST(req: Request) {
   // Same image chain the picked dishes get. Without this a dish the user clicks
   // never reaches the Google/Bing/DuckDuckGo fallback and falls straight through
   // to the generated placeholder.
-  const facts = await lookupDishes(body.data.dishes, { googleFallback: true });
+  const facts = await withSimpleDescriptions(
+    body.data.dishes,
+    await lookupDishes(body.data.dishes, { googleFallback: true }),
+  );
   return NextResponse.json<DishResponse>({ facts });
 }

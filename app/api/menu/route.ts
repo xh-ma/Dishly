@@ -22,6 +22,7 @@ import { menuLooksReal, parseMenu } from '@/lib/parse-menu';
 import { hashSeed, seededRng, spin } from '@/lib/roulette';
 import { justify } from '@/lib/justify';
 import { lookupDishes } from '@/lib/dish-lookup';
+import { withSimpleDescriptions } from '@/lib/describe-llm';
 import { isMocked } from '@/lib/steel';
 import {
   findGoogleMapsUrl,
@@ -203,7 +204,10 @@ export async function POST(req: Request) {
       0,
       MAX_PICK_LOOKUPS,
     );
-    const facts = await lookupDishes(toEnrich, { googleFallback: true });
+    const facts = await withSimpleDescriptions(
+      toEnrich,
+      await lookupDishes(toEnrich, { googleFallback: true }),
+    );
 
     return NextResponse.json<MenuResponse>({
       url,
